@@ -199,7 +199,7 @@
     },
     {
       "path": "failsafe/ui/setup.py",
-      "purpose": "Updated setup wizard to accept and use current session settings as defaults.",
+      "purpose": "Modified by coding agent",
       "key_elements": [
         "run_setup",
         "_ENV_VARS",
@@ -331,7 +331,7 @@
     },
     {
       "path": "failsafe/ui/menu.py",
-      "purpose": "Updated the menu subtitle to use `config.model_label` for better consistency.",
+      "purpose": "Modified by coding agent",
       "key_elements": [
         "run_menu",
         "_MENU_ITEMS",
@@ -655,6 +655,24 @@
     {
       "path": "failsafe/agents/reviewer.py",
       "purpose": "Updated to use `invoke_cached` for robust response text extraction and token tracking.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/state/coding.py",
+      "purpose": "Modified by coding agent",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/agents/coder.py",
+      "purpose": "Modified by coding agent",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/graph/coding.py",
+      "purpose": "Modified by coding agent",
       "key_elements": [],
       "dependencies": []
     }

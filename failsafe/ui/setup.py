@@ -72,6 +72,58 @@ def run_setup(current_config: SessionConfig | None = None) -> SessionConfig:
     )
 
 
+def run_settings_menu(config: SessionConfig) -> SessionConfig:
+    """Show a menu to edit individual settings."""
+    while True:
+        _console.print()
+        _console.rule("[bold]Settings[/bold]")
+        _console.print()
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_row("[bold]1.[/bold] Provider", f"[dim]{config.provider}[/dim]")
+        table.add_row("[bold]2.[/bold] API Key", "[dim]********[/dim]")
+        table.add_row("[bold]3.[/bold] Model", f"[dim]{config.model}[/dim]")
+        table.add_row("[bold]4.[/bold] Codebase Path", f"[dim]{config.codebase_path}[/dim]")
+        table.add_row("[bold]5.[/bold] Code Reviews", f"[dim]{config.num_reviews}[/dim]")
+        table.add_row("", "")
+        table.add_row("[bold]B.[/bold] Back to Main Menu", "")
+
+        _console.print(table)
+        _console.print()
+
+        choice = Prompt.ask(
+            "  [bold]Choose a setting to edit[/bold]",
+            console=_console,
+        ).strip().upper()
+
+        if choice == "B":
+            break
+        elif choice == "1":
+            config.provider = _ask_provider(default=config.provider)
+            # If provider changes, we might need to re-resolve API key and model
+            config.api_key = _resolve_api_key(config.provider)
+            config.model = _ask_model(config.provider)
+        elif choice == "2":
+            import getpass
+            _console.print()
+            _console.rule(
+                f"[bold dim]Edit {config.provider.capitalize()} API Key[/bold dim]", style="dim")
+            key = getpass.getpass("  New API key: ").strip()
+            if key:
+                config.api_key = key
+                _console.print("  [green]✓[/green] API key updated")
+        elif choice == "3":
+            config.model = _ask_model(config.provider, default=config.model)
+        elif choice == "4":
+            config.codebase_path = _ask_codebase_path(default=config.codebase_path)
+        elif choice == "5":
+            config.num_reviews = _ask_num_reviews(default=config.num_reviews)
+        else:
+            _console.print("[red]Unknown option.[/red] Please try again.\n")
+
+    return config
+
+
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------

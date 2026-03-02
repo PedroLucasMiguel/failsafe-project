@@ -48,7 +48,11 @@ def coder_node(state: CodingState) -> dict:
         codebase_path=codebase_path,
     )
 
-    result = agent.run(state["task"])
+    result = agent.run(
+        state["task"],
+        feedback=state.get("review_feedback"),
+        suggestions=state.get("review_suggestions"),
+    )
 
     return {
         "files_modified": result.files_modified,
@@ -58,10 +62,48 @@ def coder_node(state: CodingState) -> dict:
     }
 
 
+def reviewer_node(state: CodingState) -> dict:
+    """Review the changes made by the coder."""
+    from failsafe.agents.reviewer import ReviewerAgent
+    from failsafe.llm import get_llm
+
+    llm = get_llm()
+    reviewer = ReviewerAgent(llm=llm)
+
+    result = reviewer.review(
+        task=state["task"],
+        files_modified=state["files_modified"],
+        codebase_path=Path(state["codebase_path"]),
+    )
+
+    return {
+        "review_approved":   result.is_approved,
+        "review_feedback":   result.comments,
+        "review_suggestions": result.suggestions,
+    }
+
+
+def should_continue(state: CodingState) -> str:
+    """Determine if the workflow should continue or end."""
+    if state.get("review_approved"):
+        return END
+    return "coder"
+
+
 def build_coding_graph() -> StateGraph:
     """Build and compile the coding agent workflow."""
     graph = StateGraph(CodingState)
     graph.add_node("coder", coder_node)
+    graph.add_node("reviewer", reviewer_node)
+
     graph.add_edge(START, "coder")
-    graph.add_edge("coder", END)
+    graph.add_edge("coder", "reviewer")
+    graph.add_conditional_edges(
+        "reviewer",
+        should_continue,
+        {
+            "coder": "coder",
+            END:     END,
+        },
+    )
     return graph.compile()

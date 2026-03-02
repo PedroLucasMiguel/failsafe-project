@@ -59,8 +59,8 @@ def run_menu(config: SessionConfig) -> None:
         elif choice == "4":
             _run_code(config)
         elif choice == "5":
-            from failsafe.ui.setup import run_setup
-            config = run_setup(current_config=config)
+            from failsafe.ui.setup import run_settings_menu
+            config = run_settings_menu(config)
         else:
             _console.print("[red]Unknown option.[/red] Please try again.\n")
 

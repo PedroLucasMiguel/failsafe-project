@@ -117,11 +117,18 @@ class CodingAgent:
             self._codebase_path / "failsafe_kb.json"
         )
 
-    def run(self, task: str) -> CodingResult:
+    def run(
+        self,
+        task: str,
+        feedback: str | None = None,
+        suggestions: list[str] | None = None,
+    ) -> CodingResult:
         """Run a coding task end-to-end.
 
         Args:
             task: Natural language description of the task.
+            feedback: Optional feedback from a reviewer.
+            suggestions: Optional suggestions from a reviewer.
 
         Returns:
             CodingResult with summary, files_modified, impact, and kb_updated.
@@ -139,12 +146,19 @@ class CodingAgent:
         kb_context = self._kb_store.get_context_for_task(task, compact=True)
 
         # 3. Build initial messages
+        human_content = (
+            f"## Knowledge Base Context\n{kb_context}\n\n"
+            f"## Task\n{task}"
+        )
+        if feedback:
+            human_content += f"\n\n## Reviewer Feedback\n{feedback}"
+        if suggestions:
+            human_content += f"\n\n## Reviewer Suggestions\n" + "\n".join(
+                f"- {s}" for s in suggestions)
+
         messages = [
             SystemMessage(content=CODER_SYSTEM_PROMPT),
-            HumanMessage(content=(
-                f"## Knowledge Base Context\n{kb_context}\n\n"
-                f"## Task\n{task}"
-            )),
+            HumanMessage(content=human_content),
         ]
 
         # 4. Bind tools to LLM for structured tool calling

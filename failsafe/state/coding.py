@@ -32,6 +32,9 @@ class CodingState(TypedDict):
         impact:            "minor" | "significant" — drives KB update strategy.
         summary:           Human-readable summary of what the agent did.
         vector_store_path: Path to the LanceDB store (for KB update).
+        review_approved:   Whether the reviewer approved the changes.
+        review_feedback:   Feedback from the reviewer if changes were rejected.
+        review_suggestions: Suggested modifications from the reviewer.
     """
 
     task:              Annotated[str, _replace]
@@ -43,3 +46,6 @@ class CodingState(TypedDict):
     impact:            Annotated[str, _replace]
     summary:           Annotated[str, _replace]
     vector_store_path: Annotated[str, _replace]
+    review_approved:   Annotated[bool, _replace]
+    review_feedback:   Annotated[str, _replace]
+    review_suggestions: Annotated[list[str], _replace]
