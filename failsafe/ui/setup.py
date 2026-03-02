@@ -42,7 +42,7 @@ _ENV_VARS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
-def run_setup() -> SessionConfig:
+def run_setup(current_config: SessionConfig | None = None) -> SessionConfig:
     """Run the interactive setup wizard and return a SessionConfig."""
     # Load .env from cwd (or any parent) — silently no-ops if not found
     load_dotenv(override=False)
@@ -50,11 +50,17 @@ def run_setup() -> SessionConfig:
     _print_header()
     _console.print()
 
-    provider = _ask_provider()
+    provider = _ask_provider(default=current_config.provider if current_config else "1")
     api_key = _resolve_api_key(provider)
-    model = _ask_model(provider)
-    codebase_path = _ask_codebase_path()
-    num_reviews = _ask_num_reviews()
+
+    # If provider is the same as current, use current model as default
+    model_default = None
+    if current_config and current_config.provider == provider:
+        model_default = current_config.model
+    model = _ask_model(provider, default=model_default)
+
+    codebase_path = _ask_codebase_path(default=current_config.codebase_path if current_config else ".")
+    num_reviews = _ask_num_reviews(default=current_config.num_reviews if current_config else 1)
 
     _print_summary(provider, model, codebase_path, num_reviews)
     return SessionConfig(
@@ -69,25 +75,25 @@ def run_setup() -> SessionConfig:
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
-def _ask_num_reviews() -> int:
+def _ask_num_reviews(default: int = 1) -> int:
     """Ask for the number of code reviews to perform."""
     _console.print()
     _console.rule("[bold dim]Step 5 — Code Reviews[/bold dim]", style="dim")
-    
+
     while True:
         answer = Prompt.ask(
             "  [bold]Number of reviews[/bold]",
             console=_console,
-            default="1",
+            default=str(default),
         ).strip()
-        
+
         if answer.isdigit():
             return int(answer)
-        
+
         _console.print("  [red]Invalid choice.[/red] Please enter a number.")
 
 
-def _ask_provider() -> str:
+def _ask_provider(default: str = "1") -> str:
     """Ask which LLM provider to use, highlighting any that have a key in .env."""
     _console.rule("[bold dim]Step 1 — LLM Provider[/bold dim]", style="dim")
 
@@ -115,7 +121,7 @@ def _ask_provider() -> str:
         answer = Prompt.ask(
             "  [bold]Provider[/bold]",
             console=_console,
-            default="1",
+            default=default,
         ).strip().lower()
 
         if answer in choices:
@@ -163,12 +169,14 @@ def _resolve_api_key(provider: str) -> str:
         _console.print("  [red]API key cannot be empty.[/red]")
 
 
-def _ask_model(provider: str) -> str:
+def _ask_model(provider: str, default: str | None = None) -> str:
     """Ask for model name, defaulting to the provider's default."""
     _console.print()
     _console.rule("[bold dim]Step 3 — Model[/bold dim]", style="dim")
 
-    _, _, default_model = PROVIDER_REGISTRY[provider]
+    _, _, provider_default = PROVIDER_REGISTRY[provider]
+    default_model = default or provider_default
+
     _console.print("  [dim]Press Enter to use the default.[/dim]")
     _console.print()
 
@@ -183,7 +191,7 @@ def _ask_model(provider: str) -> str:
     return model
 
 
-def _ask_codebase_path() -> str:
+def _ask_codebase_path(default: str = ".") -> str:
     """Ask for the codebase directory path."""
     _console.print()
     _console.rule("[bold dim]Step 4 — Codebase Path[/bold dim]", style="dim")
@@ -193,7 +201,7 @@ def _ask_codebase_path() -> str:
         raw = Prompt.ask(
             "  [bold]Codebase directory[/bold]",
             console=_console,
-            default=".",
+            default=default,
         ).strip()
 
         path = Path(raw).expanduser().resolve()

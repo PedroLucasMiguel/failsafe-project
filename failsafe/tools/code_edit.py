@@ -358,13 +358,72 @@ def patch_file(path: str, old_text: str, new_text: str) -> str:
     )
 
 
+@tool
+def grep_file(path: str, pattern: str, context_lines: int = 5) -> str:
+    """Search for a pattern in a file and return matching lines with surrounding context.
+
+    Use this BEFORE read_file_section when you need to find where a function,
+    class, variable, or string is defined — it returns exact line numbers so you
+    can immediately call read_file_section or patch_file without guessing.
+
+    Args:
+        path:          Relative path from the codebase root.
+        pattern:       Text to search for (case-sensitive substring, not regex).
+        context_lines: Number of lines to show before and after each match
+                       (default 5). Increase to 10-15 if you need to see a
+                       full function body.
+
+    Returns:
+        Matching lines with line numbers and context, or a message if not found.
+    """
+    ctx = get_tool_context()
+    abs_path = ctx.codebase_path / path
+    if not abs_path.exists():
+        return f"ERROR: File not found: {path}"
+    if not abs_path.is_file():
+        return f"ERROR: Not a file: {path}"
+
+    try:
+        lines = abs_path.read_text(
+            encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        return f"ERROR: Could not read {path}: {e}"
+
+    # Find all line indices where pattern appears
+    matches = [i for i, line in enumerate(lines) if pattern in line]
+    if not matches:
+        return f"Pattern {pattern!r} not found in {path} ({len(lines)} lines total)."
+
+    total = len(lines)
+    blocks: list[str] = []
+    covered: set[int] = set()
+
+    for mi in matches:
+        start = max(0, mi - context_lines)
+        end = min(total, mi + context_lines + 1)
+        # Skip if already covered by a previous match
+        if mi in covered:
+            continue
+        covered.update(range(start, end))
+
+        block_lines = []
+        for i in range(start, end):
+            marker = ">>>" if i == mi else "   "
+            block_lines.append(f"{i + 1:4d} {marker} {lines[i]}")
+        blocks.append("\n".join(block_lines))
+
+    header = f"{path}: {len(matches)} match(es) for {pattern!r}\n"
+    return header + "\n---\n".join(blocks)
+
+
 # ---------------------------------------------------------------------------
 # Tool registry
 # ---------------------------------------------------------------------------
 
 CODING_TOOLS = [
-    read_file,
+    grep_file,          # find exact line numbers first — avoids read_file_section loops
     read_file_section,
+    read_file,
     write_file,
     patch_file,
     create_directory,

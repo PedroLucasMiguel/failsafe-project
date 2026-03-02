@@ -58,16 +58,19 @@ You are an expert coding agent. You have a KB and tools to read/write files.
 1. **Research phase (iterations 1-2 max):**
    - Call search_kb ONCE with your best query. Do NOT call it again.
    - Use get_file_context to quickly fetch KB metadata for a specific file.
-   - Use read_file_section(path, start_line, end_line) to read ONLY the lines
-     you need from a large file (preferred for files >100 lines).
-   - Use read_file only for small files (<100 lines). Read each file AT MOST ONCE.
-   - Do NOT call list_directory more than once.
+   - **To find a function/class/symbol in a file, ALWAYS call grep_file first.**
+     It returns the exact line numbers so you can call read_file_section once
+     without guessing. Example: grep_file("failsafe/llm.py", "def invoke_cached")
+   - Use read_file_section(path, start_line, end_line) ONLY AFTER grep_file has
+     told you the line range. Read each file AT MOST ONCE.
+   - Use read_file only for small files (<100 lines). Do NOT call list_directory
+     more than once.
 
 2. **Action phase (iterations 3+):**
    - **For large files (>100 lines): use patch_file(path, old_text, new_text)**
      to surgically replace only the exact block you are changing.
-     - old_text must match EXACTLY (copy from read_file_section output).
-     - If old_text isn't found, read_file_section again to get the exact content.
+     - old_text must match EXACTLY (copy from grep_file/read_file_section output).
+     - If old_text isn't found, use grep_file again to locate the exact text.
    - **For small files or new files: use write_file(path, full_content).**
    - Do NOT re-read a file after patching/writing it.
    - Do NOT search again after the research phase.
@@ -128,7 +131,8 @@ class CodingAgent:
         set_tool_context(ctx)
 
         # 2. Fetch KB context for this task
-        kb_context = self._kb_store.get_context_for_task(task)
+        # compact=True: metadata hints only, no raw code → agent uses search_kb on demand
+        kb_context = self._kb_store.get_context_for_task(task, compact=True)
 
         # 3. Build initial messages
         messages = [
@@ -154,13 +158,18 @@ class CodingAgent:
         # If agent calls same tool with same args again, return cached result
         # without adding new context to the message history.
         _tool_cache: dict[tuple, str] = {}
-        MAX_RESULT_CHARS = 4_000  # truncate long tool outputs to keep context small
+        # How many of the most-recent AI+tool message pairs to keep in context.
+        # Indices 0 (system) and 1 (initial task) are always kept; everything
+        # beyond MAX_HISTORY_MSGS older messages is dropped to bound token usage.
+        MAX_HISTORY_MSGS = 12      # 6 AI turns + 6 tool-result turns
+        MAX_RESULT_CHARS = 2_000   # truncate long tool outputs to keep context small
 
         while iterations < self.MAX_ITERATIONS:
             iterations += 1
 
             # LLM decides what to do next
-            response = self._invoke_with_tools(llm_with_tools, messages)
+            response = self._invoke_with_tools(
+                llm_with_tools, messages, max_history=MAX_HISTORY_MSGS)
             messages.append(response)
 
             # No tool calls → agent is done, print final token count
@@ -236,13 +245,30 @@ class CodingAgent:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _invoke_with_tools(self, llm_with_tools, messages: list):
-        """Invoke LLM with tool-calling support (bypasses invoke_cached since
-        tool-call responses have structured metadata not suitable for caching)."""
+    def _invoke_with_tools(self, llm_with_tools, messages: list, max_history: int = 12):
+        """Invoke LLM with tool-calling support, applying a sliding history window.
+
+        To prevent unbounded context growth across many iterations, we keep:
+          - messages[0]: system prompt (always)
+          - messages[1]: initial HumanMessage with task + KB context (always)
+          - messages[-max_history:]: the most recent AI/tool-result pairs
+
+        Older intermediate tool results are dropped. The _tool_cache ensures
+        the agent won't re-invoke tools it has already called with the same args.
+
+        (Bypasses invoke_cached since tool-call responses have structured
+        metadata not suitable for caching.)
+        """
         from failsafe.tracking import tracker
         from failsafe.llm import _apply_provider_caching
 
-        provider_messages = _apply_provider_caching(self._llm, messages)
+        # Pin the first two messages; slide a window over the rest
+        if len(messages) > 2 + max_history:
+            windowed = messages[:2] + messages[-max_history:]
+        else:
+            windowed = messages
+
+        provider_messages = _apply_provider_caching(self._llm, windowed)
         response = llm_with_tools.invoke(provider_messages)
         tracker.record(response)
         return response

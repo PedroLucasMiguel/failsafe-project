@@ -136,8 +136,12 @@ class KnowledgeStore:
 
         return results
 
-    def get_context_for_task(self, task_description: str) -> str:
-        """Build a compact context block for a coding agent working on a task.
+    def get_context_for_task(
+        self,
+        task_description: str,
+        compact: bool = True,
+    ) -> str:
+        """Build a context block for a coding agent working on a task.
 
         When a VectorStore is attached (via attach_vector_store), uses semantic
         similarity search to find the most relevant code chunks. Falls back to
@@ -145,6 +149,10 @@ class KnowledgeStore:
 
         Args:
             task_description: What the coding agent is about to implement.
+            compact: When True (default), returns lightweight metadata only —
+                no raw source code, just file paths, subsystems, and purposes.
+                The agent can fetch full code on demand via the search_kb tool.
+                When False, includes full raw code chunks (expensive).
 
         Returns:
             A formatted string with relevant KB context, ready to inject into
@@ -159,22 +167,46 @@ class KnowledgeStore:
 
         # --- Semantic search path (preferred when vector store is available) ---
         if self._vector_store is not None:
-            semantic_results = self._vector_store.search(task_description, n=6)
+            # compact=True: 3 results, metadata only; compact=False: 6 results + full code
+            n_results = 3 if compact else 6
+            semantic_results = self._vector_store.search(
+                task_description, n=n_results)
             if semantic_results:
-                lines = ["## Relevant Code (semantic search)"]
-                seen_files: set[str] = set()
-                for r in semantic_results:
-                    from failsafe.knowledge.vector_store import _guess_language
-                    lang = _guess_language(r["file"])
-                    file_label = r["file"]
-                    if r.get("subsystem"):
-                        file_label += f" [{r['subsystem']}]"
-                    if r["file"] not in seen_files:
+                if compact:
+                    # Only show file path + purpose extracted from embed_text header
+                    # Raw code is intentionally omitted — agent uses search_kb tool
+                    lines = [
+                        "## Relevant Files (use search_kb tool for full code)"
+                    ]
+                    seen_files: set[str] = set()
+                    for r in semantic_results:
+                        if r["file"] in seen_files:
+                            continue
                         seen_files.add(r["file"])
-                    lines.append(
-                        f"\n### {file_label} (chunk {r['chunk_index']})")
-                    lines.append(f"```{lang}\n{r['code']}\n```")
-                sections.append("\n".join(lines))
+                        purpose = _extract_purpose_from_embed(
+                            r.get("embed_text", ""))
+                        label = r["file"]
+                        if r.get("subsystem"):
+                            label += f" [{r['subsystem']}]"
+                        if purpose:
+                            label += f" — {purpose}"
+                        lines.append(f"- `{label}`")
+                    sections.append("\n".join(lines))
+                else:
+                    lines = ["## Relevant Code (semantic search)"]
+                    seen_files_full: set[str] = set()
+                    for r in semantic_results:
+                        from failsafe.knowledge.vector_store import _guess_language
+                        lang = _guess_language(r["file"])
+                        file_label = r["file"]
+                        if r.get("subsystem"):
+                            file_label += f" [{r['subsystem']}]"
+                        if r["file"] not in seen_files_full:
+                            seen_files_full.add(r["file"])
+                        lines.append(
+                            f"\n### {file_label} (chunk {r['chunk_index']})")
+                        lines.append(f"```{lang}\n{r['code']}\n```")
+                    sections.append("\n".join(lines))
 
         # --- Keyword fallback for patterns and subsystems ---
         keywords = _extract_keywords(task_description)
@@ -190,27 +222,28 @@ class KnowledgeStore:
                 lines.append(f"- **{s.name}**: {s.description} ({files})")
             sections.append("\n".join(lines))
 
-        # Pattern snippets from KB (supplement vector results)
+        # Pattern snippets from KB — skip code in compact mode
         snippets = []
         for kw in keywords:
             snippets.extend(self.find_snippets(kw))
-        seen: set[tuple] = set()
+        seen_snip: set[tuple] = set()
         unique_snippets = []
         for s in snippets:
             key = (s["pattern"], s["label"])
-            if key not in seen:
-                seen.add(key)
+            if key not in seen_snip:
+                seen_snip.add(key)
                 unique_snippets.append(s)
 
         if unique_snippets:
             lines = ["## Coding Patterns"]
-            for s in unique_snippets[:4]:
+            for s in unique_snippets[:3 if compact else 4]:
                 lines.append(f"\n### {s['pattern']} — {s['label']}")
                 if s.get("when_to_use"):
                     lines.append(f"*When to use:* {s['when_to_use']}")
                 lines.append(f"*File:* `{s['file']}`")
-                lang = s.get("language", "")
-                lines.append(f"```{lang}\n{s['code']}\n```")
+                if not compact:
+                    lang = s.get("language", "")
+                    lines.append(f"```{lang}\n{s['code']}\n```")
             sections.append("\n".join(lines))
 
         # Architecture notes (always appended, truncated if long)
@@ -278,3 +311,23 @@ def _extract_keywords(text: str) -> list[str]:
     }
     words = text.lower().split()
     return [w.strip(".,;:!?\"'()[]{}") for w in words if w not in stopwords and len(w) > 2]
+
+
+def _extract_purpose_from_embed(embed_text: str) -> str:
+    """Extract the '# Purpose: ...' line from an enriched chunk's embed_text header.
+
+    The enricher writes headers in this format::
+
+        # File: failsafe/llm.py
+        # Subsystem: Token Layer
+        # Purpose: Unified LLM invocation helper with caching
+        # Key elements: invoke_cached, ...
+        # ---- code below ----
+
+    Returns the purpose string, or empty string if not found.
+    """
+    for line in embed_text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("# purpose:"):
+            return stripped[len("# purpose:"):].strip()
+    return ""

@@ -28,6 +28,7 @@ _MENU_ITEMS: list[tuple[str, str]] = [
     ("2", "Sync KB        [dim](fast, after git pull)[/dim]"),
     ("3", "Sync KB (full) [dim](rebuild all vectors from committed KB)[/dim]"),
     ("4", "Code           [dim](run a coding agent task)[/dim]"),
+    ("5", "Settings       [dim](reconfigure provider, model, etc.)[/dim]"),
     ("Q", "Quit"),
 ]
 
@@ -57,6 +58,9 @@ def run_menu(config: SessionConfig) -> None:
             _run_sync(config, full=True)
         elif choice == "4":
             _run_code(config)
+        elif choice == "5":
+            from failsafe.ui.setup import run_setup
+            config = run_setup(current_config=config)
         else:
             _console.print("[red]Unknown option.[/red] Please try again.\n")
 
@@ -343,7 +347,7 @@ def _print_menu(config: SessionConfig) -> None:
     _console.print(Panel(
         table,
         title="[bold]Main Menu[/bold]",
-        subtitle=f"[dim]{config.provider} · {config.model} · {config.codebase_path}[/dim]",
+        subtitle=f"[dim]{config.provider} · {config.model_label} · {config.codebase_path}[/dim]",
         border_style="bright_blue",
         padding=(0, 2),
     ))

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from failsafe.llm import invoke_cached
+
 
 @dataclass
 class ReviewResult:
@@ -74,13 +76,12 @@ class ReviewerAgent:
             )),
         ]
 
-        response = self._llm.invoke(messages)
+        content = invoke_cached(self._llm, messages)
         
         # Parse the response
         import json
         try:
             # Try to find JSON in the response if it's not pure JSON
-            content = response.content
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "{" in content:
@@ -95,6 +96,6 @@ class ReviewerAgent:
         except Exception as e:
             return ReviewResult(
                 is_approved=False,
-                feedback=f"Error parsing reviewer response: {e}\nRaw response: {response.content}",
+                feedback=f"Error parsing reviewer response: {e}\nRaw response: {content}",
                 suggestions=[]
             )
