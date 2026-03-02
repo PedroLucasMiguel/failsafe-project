@@ -359,19 +359,19 @@ def patch_file(path: str, old_text: str, new_text: str) -> str:
 
 
 @tool
-def grep_file(path: str, pattern: str, context_lines: int = 5) -> str:
+def grep_file(path: str, pattern: str, context_lines: int = 20) -> str:
     """Search for a pattern in a file and return matching lines with surrounding context.
 
-    Use this BEFORE read_file_section when you need to find where a function,
-    class, variable, or string is defined — it returns exact line numbers so you
-    can immediately call read_file_section or patch_file without guessing.
+    Use this as your PRIMARY research tool before touching any file. It returns
+    exact line numbers and up to context_lines of surrounding code. The default
+    of 20 lines covers most function bodies — if you can see the full block you
+    want to change in the output, call patch_file DIRECTLY without reading more.
 
     Args:
         path:          Relative path from the codebase root.
         pattern:       Text to search for (case-sensitive substring, not regex).
-        context_lines: Number of lines to show before and after each match
-                       (default 5). Increase to 10-15 if you need to see a
-                       full function body.
+        context_lines: Lines to show before/after each match (default 20).
+                       Increase to 40-50 for very large functions.
 
     Returns:
         Matching lines with line numbers and context, or a message if not found.
