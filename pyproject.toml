@@ -1,0 +1,27 @@
+[project]
+name = "failsafe"
+version = "0.1.0"
+description = "Multi-agent system for automated codebase discovery and knowledge base generation"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-anthropic>=0.3",
+    "langchain-google-genai>=2.0",
+    "pydantic>=2.0",
+    "pathspec>=0.12",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+    "lancedb>=0.15",
+    "sentence-transformers>=3.0",
+]
+
+[project.scripts]
+failsafe = "failsafe.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

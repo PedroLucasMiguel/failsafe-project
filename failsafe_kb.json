@@ -1,0 +1,651 @@
+{
+  "project_name": "Failsafe",
+  "summary": "An automated codebase discovery and synchronization system that builds a structured knowledge base using LLMs and vector search. It enables semantic understanding of large repositories through agentic exploration, incremental git-based syncing, and context-enriched indexing.",
+  "tech_stack": [
+    "Python 3.12",
+    "LangGraph",
+    "LangChain",
+    "Pydantic v2",
+    "LanceDB",
+    "Sentence-Transformers",
+    "Rich",
+    "Pathspec",
+    "PyArrow"
+  ],
+  "subsystems": [
+    {
+      "name": "Agentic Workflow",
+      "description": "Orchestrates the discovery pipeline using LangGraph, coordinating specialized agents for interviewing, exploring, analyzing, and indexing codebases.",
+      "files": [
+        "failsafe/graph/discovery.py",
+        "failsafe/agents/analyzer.py",
+        "failsafe/agents/explorer.py",
+        "failsafe/agents/indexer.py",
+        "failsafe/agents/interview.py",
+        "failsafe/state/discovery.py",
+        "failsafe/state/__init__.py",
+        "failsafe/graph/__init__.py",
+        "failsafe/agents/__init__.py"
+      ]
+    },
+    {
+      "name": "Knowledge & Storage",
+      "description": "Manages the structured representation of the codebase, including Pydantic models, semantic vector storage with LanceDB, and local embedding generation.",
+      "files": [
+        "failsafe/knowledge/embedder.py",
+        "failsafe/knowledge/enricher.py",
+        "failsafe/knowledge/models.py",
+        "failsafe/knowledge/store.py",
+        "failsafe/knowledge/updater.py",
+        "failsafe/knowledge/vector_store.py",
+        "failsafe/knowledge/__init__.py"
+      ]
+    },
+    {
+      "name": "LLM Infrastructure",
+      "description": "Provides a unified interface for multiple LLM providers with built-in caching, token tracking, and provider-specific optimizations.",
+      "files": [
+        "failsafe/llm.py",
+        "failsafe/cache.py",
+        "failsafe/tracking.py"
+      ]
+    },
+    {
+      "name": "Sync Engine",
+      "description": "Handles incremental updates by comparing git states and applying 'fast-path' or 'accurate-path' updates to the knowledge base.",
+      "files": [
+        "failsafe/sync.py"
+      ]
+    },
+    {
+      "name": "CLI & UI",
+      "description": "Provides the interactive terminal interface, setup wizards, and session management.",
+      "files": [
+        "failsafe/cli.py",
+        "failsafe/ui/setup.py",
+        "failsafe/ui/menu.py",
+        "failsafe/ui/session.py",
+        "failsafe/ui/__init__.py",
+        "failsafe/__init__.py"
+      ]
+    },
+    {
+      "name": "Agent Tools",
+      "description": "Standardized tools for agents to interact with the filesystem, execute commands, and communicate with the user.",
+      "files": [
+        "failsafe/tools/execution.py",
+        "failsafe/tools/filesystem.py",
+        "failsafe/tools/interaction.py",
+        "failsafe/tools/__init__.py"
+      ]
+    },
+    {
+      "name": "Project Metadata",
+      "description": "Configuration, licensing, and documentation.",
+      "files": [
+        "pyproject.toml",
+        "README.md",
+        "LICENSE",
+        "patches.md"
+      ]
+    }
+  ],
+  "coding_patterns": [
+    {
+      "name": "Budget-aware Batch Packing",
+      "description": "Optimizes LLM costs by packing multiple small file summaries into a single LLM request based on character count limits.",
+      "when_to_use": "When processing a large number of small items (files, logs, snippets) that need individual processing but can fit within a single context window.",
+      "code_snippets": [
+        {
+          "file": "failsafe/agents/explorer.py",
+          "label": "Batch packing logic",
+          "language": "python",
+          "code": "def _build_batches(files, budget):\n    batches, current_batch, current_size = [], [], 0\n    for f in files:\n        f_size = f.stat().st_size\n        if current_size + f_size > budget and current_batch:\n            batches.append(current_batch)\n            current_batch, current_size = [], 0\n        current_batch.append(f)\n        current_size += f_size\n    if current_batch: batches.append(current_batch)\n    return batches"
+        }
+      ],
+      "examples": [
+        "failsafe/agents/explorer.py"
+      ]
+    },
+    {
+      "name": "LangGraph State Reducer Pattern",
+      "description": "Uses Annotated types in TypedDict state definitions to specify how new data should be merged into the global graph state (e.g., replacing vs. appending).",
+      "when_to_use": "When building complex LangGraph workflows where different nodes update specific parts of a shared state object.",
+      "code_snippets": [
+        {
+          "file": "failsafe/state/discovery.py",
+          "label": "State schema with reducers",
+          "language": "python",
+          "code": "class DiscoveryState(TypedDict):\n    messages: Annotated[list[BaseMessage], add_messages]\n    file_analyses: Annotated[dict[str, FileAnalysis], _merge_dicts]\n    project_context: Annotated[str, _replace]\n    subsystems: Annotated[list[Subsystem], _replace]"
+        }
+      ],
+      "examples": [
+        "failsafe/state/discovery.py"
+      ]
+    },
+    {
+      "name": "Context-Header Enrichment",
+      "description": "Prepends AI-generated summaries and metadata as headers to raw code chunks before vector indexing to improve semantic retrieval accuracy.",
+      "when_to_use": "When indexing code for RAG where raw code might lack the semantic keywords needed for natural language queries.",
+      "code_snippets": [
+        {
+          "file": "failsafe/knowledge/enricher.py",
+          "label": "Enrichment header generation",
+          "language": "python",
+          "code": "def make_header_from_description(file_path, description):\n    return f\"\"\"# File: {file_path}\n# Context: {description}\n# --- Code Start ---\n\"\"\""
+        }
+      ],
+      "examples": [
+        "failsafe/knowledge/enricher.py",
+        "failsafe/knowledge/vector_store.py"
+      ]
+    },
+    {
+      "name": "Provider Registry with Lazy Imports",
+      "description": "A factory pattern that maps provider names to instantiation logic, using dynamic imports to avoid heavy dependency loading until a specific LLM is needed.",
+      "when_to_use": "When supporting multiple third-party integrations (LLMs, Databases) where users might only have one of the required libraries installed.",
+      "code_snippets": [
+        {
+          "file": "failsafe/llm.py",
+          "label": "LLM Provider Registry",
+          "language": "python",
+          "code": "PROVIDER_REGISTRY = {\n    \"openai\": lambda cfg: ChatOpenAI(model=cfg['model'], api_key=cfg['api_key']),\n    \"anthropic\": lambda cfg: ChatAnthropic(model=cfg['model'], api_key=cfg['api_key']),\n    \"google\": _create_google_llm\n}\ndef get_llm(provider, config):\n    return PROVIDER_REGISTRY[provider](config)"
+        }
+      ],
+      "examples": [
+        "failsafe/llm.py"
+      ]
+    }
+  ],
+  "proprietary_tech": [
+    {
+      "name": "EnrichedChunk",
+      "description": "A specialized data structure that pairs raw code segments with AI-generated context to facilitate high-precision semantic search in technical domains.",
+      "related_files": [
+        "failsafe/knowledge/enricher.py",
+        "failsafe/knowledge/vector_store.py"
+      ]
+    },
+    {
+      "name": "Incremental Sync Engine",
+      "description": "A git-aware synchronization logic that minimizes LLM usage by detecting file changes via commit hashes and selectively updating the KnowledgeBase.",
+      "related_files": [
+        "failsafe/sync.py",
+        "failsafe/knowledge/updater.py"
+      ]
+    }
+  ],
+  "file_analyses": [
+    {
+      "path": "README.md",
+      "purpose": "Provides an overview, quick start guide, and supported LLM providers for the Failsafe project.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "pyproject.toml",
+      "purpose": "Defines project metadata, dependencies, and CLI entry points for the failsafe package.",
+      "key_elements": [],
+      "dependencies": [
+        "langgraph",
+        "langchain",
+        "pydantic",
+        "pathspec",
+        "rich",
+        "python-dotenv",
+        "lancedb",
+        "sentence-transformers"
+      ]
+    },
+    {
+      "path": "failsafe/ui/setup.py",
+      "purpose": "Implements an interactive setup wizard to collect LLM provider details, API keys, and codebase paths.",
+      "key_elements": [
+        "run_setup",
+        "_ENV_VARS",
+        "_ask_provider",
+        "_resolve_api_key",
+        "_ask_model",
+        "_ask_codebase_path"
+      ],
+      "dependencies": [
+        "os",
+        "pathlib",
+        "dotenv",
+        "rich",
+        "failsafe.llm",
+        "failsafe.ui.session"
+      ]
+    },
+    {
+      "path": "LICENSE",
+      "purpose": "Specifies the MIT legal terms under which the software is licensed.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "patches.md",
+      "purpose": "Documents the development progress, feature additions, and architectural decisions of the failsafe system.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/__init__.py",
+      "purpose": "Initializes the failsafe package.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/cache.py",
+      "purpose": "Provides a thread-safe, in-memory response cache for LLM calls based on message content hashing.",
+      "key_elements": [
+        "ResponseCache",
+        "response_cache"
+      ],
+      "dependencies": [
+        "hashlib",
+        "json",
+        "threading",
+        "dataclasses",
+        "rich"
+      ]
+    },
+    {
+      "path": "failsafe/cli.py",
+      "purpose": "Serves as the main entry point for the failsafe command-line interface.",
+      "key_elements": [
+        "main"
+      ],
+      "dependencies": [
+        "failsafe.ui.setup",
+        "failsafe.ui.menu"
+      ]
+    },
+    {
+      "path": "failsafe/llm.py",
+      "purpose": "Provides a factory and registry for instantiating and managing LLM clients (OpenAI, Anthropic, Google) with support for dynamic imports, provider-specific configurations, and normalized response/prompt caching.",
+      "key_elements": [
+        "extract_text",
+        "invoke_cached",
+        "set_llm",
+        "get_llm",
+        "create_llm",
+        "PROVIDER_REGISTRY",
+        "SUPPORTED_PROVIDERS",
+        "_apply_provider_caching",
+        "_detect_provider",
+        "_add_anthropic_cache_control"
+      ],
+      "dependencies": [
+        "langchain_core",
+        "failsafe.cache",
+        "failsafe.tracking",
+        "importlib"
+      ]
+    },
+    {
+      "path": "failsafe/sync.py",
+      "purpose": "Implements an incremental synchronization engine that updates a vector store by comparing the current git state against a stored state, using LLM-driven summarization and a committed knowledge base to minimize processing costs.",
+      "key_elements": [
+        "run_sync",
+        "_get_head_commit",
+        "_detect_changes",
+        "_all_tracked_files",
+        "_all_files",
+        "_load_sync_state",
+        "_save_sync_state",
+        "_summarize_and_build",
+        "_build_subsystem_map",
+        "_build_pattern_map"
+      ],
+      "dependencies": [
+        "json",
+        "subprocess",
+        "pathlib",
+        "rich",
+        "datetime",
+        "langchain_core.messages",
+        "failsafe.knowledge.vector_store",
+        "failsafe.knowledge.enricher",
+        "failsafe.llm",
+        "failsafe.agents.explorer"
+      ]
+    },
+    {
+      "path": "failsafe/tracking.py",
+      "purpose": "Tracks and accumulates token usage across LLM calls in a thread-safe manner.",
+      "key_elements": [
+        "TokenTracker",
+        "tracker"
+      ],
+      "dependencies": [
+        "threading",
+        "dataclasses"
+      ]
+    },
+    {
+      "path": "failsafe/ui/__init__.py",
+      "purpose": "Initializes the UI subpackage.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/ui/menu.py",
+      "purpose": "Manages the main interactive menu for selecting discovery and synchronization actions.",
+      "key_elements": [
+        "run_menu",
+        "_MENU_ITEMS",
+        "_run_discover",
+        "_run_sync"
+      ],
+      "dependencies": [
+        "pathlib",
+        "rich",
+        "failsafe.ui.session",
+        "failsafe.graph.discovery",
+        "failsafe.knowledge.store",
+        "failsafe.llm",
+        "failsafe.tracking",
+        "failsafe.cache",
+        "failsafe.sync"
+      ]
+    },
+    {
+      "path": "failsafe/ui/session.py",
+      "purpose": "Defines the data structure for holding session-specific configuration.",
+      "key_elements": [
+        "SessionConfig"
+      ],
+      "dependencies": [
+        "dataclasses",
+        "failsafe.llm"
+      ]
+    },
+    {
+      "path": "failsafe/tools/__init__.py",
+      "purpose": "Initializes the tools subpackage for agents.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/tools/execution.py",
+      "purpose": "Provides tools for running shell commands and creating temporary scripts with safety constraints like timeouts and output truncation.",
+      "key_elements": [
+        "run_command",
+        "write_temp_script",
+        "COMMAND_TIMEOUT_SECONDS",
+        "MAX_OUTPUT_CHARS"
+      ],
+      "dependencies": [
+        "os",
+        "subprocess",
+        "tempfile",
+        "pathlib",
+        "langchain_core.tools"
+      ]
+    },
+    {
+      "path": "failsafe/tools/filesystem.py",
+      "purpose": "Provides tools for reading files, listing directories with gitignore support, and parsing gitignore files.",
+      "key_elements": [
+        "read_file",
+        "list_directory",
+        "parse_gitignore",
+        "BINARY_EXTENSIONS",
+        "_build_pathspec"
+      ],
+      "dependencies": [
+        "os",
+        "pathlib",
+        "pathspec",
+        "langchain_core.tools"
+      ]
+    },
+    {
+      "path": "failsafe/tools/interaction.py",
+      "purpose": "Provides tools for CLI-based communication with the user, including questions and permission prompts.",
+      "key_elements": [
+        "ask_user",
+        "ask_user_permission",
+        "_console"
+      ],
+      "dependencies": [
+        "langchain_core.tools",
+        "rich.console",
+        "rich.prompt"
+      ]
+    },
+    {
+      "path": "failsafe/graph/__init__.py",
+      "purpose": "Initializes the graph package for failsafe.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/graph/discovery.py",
+      "purpose": "Defines and compiles the main LangGraph StateGraph for the discovery workflow pipeline.",
+      "key_elements": [
+        "build_discovery_graph"
+      ],
+      "dependencies": [
+        "langgraph.graph",
+        "failsafe.agents.analyzer",
+        "failsafe.agents.explorer",
+        "failsafe.agents.indexer",
+        "failsafe.agents.interview",
+        "failsafe.state.discovery"
+      ]
+    },
+    {
+      "path": "failsafe/agents/__init__.py",
+      "purpose": "Initializes the agents package for failsafe.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/agents/analyzer.py",
+      "purpose": "Synthesizes exploration results into a structured knowledge base using a mix of Python logic and LLM calls.",
+      "key_elements": [
+        "analyzer_node",
+        "_build_file_analyses",
+        "_format_summaries_for_synthesis",
+        "_strip_code_fences",
+        "SYNTHESIS_SYSTEM_PROMPT"
+      ],
+      "dependencies": [
+        "json",
+        "langchain_core.messages",
+        "failsafe.state.discovery",
+        "failsafe.llm"
+      ]
+    },
+    {
+      "path": "failsafe/agents/explorer.py",
+      "purpose": "Traverses a codebase to generate structured per-file summaries using an LLM, employing budget-aware batching for small files and a map-reduce strategy for large files.",
+      "key_elements": [
+        "explorer_node",
+        "CHUNK_SIZE",
+        "BATCH_BUDGET",
+        "PRIORITY_FILENAMES",
+        "BATCH_SUMMARY_PROMPT",
+        "CHUNK_SUMMARY_PROMPT",
+        "CHUNK_COMBINE_PROMPT",
+        "_build_batches",
+        "_summarize_batch",
+        "_parse_batch_blocks"
+      ],
+      "dependencies": [
+        "langchain_core.messages",
+        "rich",
+        "failsafe.llm",
+        "failsafe.state.discovery",
+        "failsafe.tools.filesystem",
+        "failsafe.tracking",
+        "time",
+        "pathlib.Path",
+        "rich.panel.Panel"
+      ]
+    },
+    {
+      "path": "failsafe/agents/indexer.py",
+      "purpose": "Builds a local vector store by enriching file content with AI-generated summaries and metadata.",
+      "key_elements": [
+        "indexer_node",
+        "_build_subsystem_map",
+        "_build_pattern_map"
+      ],
+      "dependencies": [
+        "pathlib",
+        "rich.console",
+        "rich.panel",
+        "failsafe.knowledge.enricher",
+        "failsafe.knowledge.vector_store",
+        "failsafe.state.discovery"
+      ]
+    },
+    {
+      "path": "failsafe/agents/interview.py",
+      "purpose": "Conducts a brief user interview to gather initial project context before exploration.",
+      "key_elements": [
+        "interview_node",
+        "INTERVIEW_SYSTEM_PROMPT"
+      ],
+      "dependencies": [
+        "langchain_core.messages",
+        "failsafe.state.discovery",
+        "failsafe.tools.interaction",
+        "failsafe.llm"
+      ]
+    },
+    {
+      "path": "failsafe/state/__init__.py",
+      "purpose": "Initializes the state package for failsafe agents.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/state/discovery.py",
+      "purpose": "Defines the shared state schema used across the discovery workflow graph.",
+      "key_elements": [
+        "DiscoveryState",
+        "_replace",
+        "_merge_dicts"
+      ],
+      "dependencies": [
+        "typing",
+        "langgraph.graph.message",
+        "langchain_core.messages"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/__init__.py",
+      "purpose": "Initializes the knowledge package for models and storage.",
+      "key_elements": [],
+      "dependencies": []
+    },
+    {
+      "path": "failsafe/knowledge/embedder.py",
+      "purpose": "Provides a local wrapper for generating text embeddings using sentence-transformers.",
+      "key_elements": [
+        "Embedder",
+        "embedder",
+        "MODEL_NAME",
+        "EMBEDDING_DIM"
+      ],
+      "dependencies": [
+        "threading",
+        "typing",
+        "sentence_transformers"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/enricher.py",
+      "purpose": "Builds enriched code chunks for vector indexing by combining AI-generated context headers with raw code to improve semantic retrieval.",
+      "key_elements": [
+        "CHUNK_SIZE",
+        "EnrichedChunk",
+        "build_enriched_chunks",
+        "make_header_from_description",
+        "_make_header",
+        "_split"
+      ],
+      "dependencies": [
+        "dataclasses"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/models.py",
+      "purpose": "Defines Pydantic schemas for structured codebase understanding, including subsystems, coding patterns, and file-level analyses.",
+      "key_elements": [
+        "FileAnalysis",
+        "Subsystem",
+        "CodeSnippet",
+        "CodingPattern",
+        "ProprietaryTech",
+        "KnowledgeBase"
+      ],
+      "dependencies": [
+        "pydantic"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/store.py",
+      "purpose": "Manages an in-memory query and access layer for the KnowledgeBase, providing semantic and keyword search, persistence, and formatted context generation for LLM agents.",
+      "key_elements": [
+        "KnowledgeStore",
+        "attach_vector_store",
+        "search_semantic",
+        "get_subsystem_for_file",
+        "get_file_analysis",
+        "search_patterns",
+        "find_snippets",
+        "get_context_for_task",
+        "summary",
+        "to_json"
+      ],
+      "dependencies": [
+        "json",
+        "pathlib",
+        "typing",
+        "failsafe.knowledge.models.KnowledgeBase",
+        "failsafe.knowledge.vector_store.VectorStore"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/updater.py",
+      "purpose": "Manages incremental updates to the vector store and knowledge base after files are modified, supporting both fast (agent-described) and accurate (LLM-summarized) paths.",
+      "key_elements": [
+        "kb_update",
+        "_build_fast",
+        "_build_accurate",
+        "_get_subsystem",
+        "_get_patterns_for_file"
+      ],
+      "dependencies": [
+        "pathlib",
+        "failsafe.knowledge.enricher",
+        "failsafe.knowledge.models",
+        "failsafe.llm",
+        "langchain_core.messages",
+        "failsafe.agents.explorer"
+      ]
+    },
+    {
+      "path": "failsafe/knowledge/vector_store.py",
+      "purpose": "Provides a local LanceDB-backed vector store for indexing and searching code chunks using semantic embeddings.",
+      "key_elements": [
+        "TABLE_NAME",
+        "VectorStore",
+        "_guess_language"
+      ],
+      "dependencies": [
+        "pathlib",
+        "lancedb",
+        "pyarrow",
+        "failsafe.knowledge.embedder",
+        "failsafe.knowledge.enricher"
+      ]
+    }
+  ],
+  "architecture_notes": "The system follows a modular agentic architecture orchestrated by LangGraph. It transitions from an unstructured codebase to a structured KnowledgeBase (Pydantic models) through a linear pipeline: Interview -> Explorer -> Analyzer -> Indexer. Data persistence is hybrid, using LanceDB for high-dimensional vector embeddings of 'EnrichedChunks' and local JSON for the relational metadata of subsystems and patterns. A thread-safe singleton layer manages cross-cutting concerns like LLM response caching and token usage tracking."
+}
