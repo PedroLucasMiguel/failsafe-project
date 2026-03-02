@@ -224,9 +224,151 @@ def get_file_context(path: str) -> str:
     return "\n".join(lines)
 
 
+@tool
+def create_directory(path: str, with_init: bool = False) -> str:
+    """Create a new directory (and any missing parents) in the codebase.
+
+    Use this to scaffold new packages or module directories before writing files.
+    Note: write_file already creates parent directories automatically, so you
+    only need this when you want an empty directory or need to add __init__.py.
+
+    Args:
+        path:       Relative path of the directory to create.
+        with_init:  If True, also creates an empty __init__.py inside it,
+                    making it a proper Python package.
+
+    Returns:
+        Confirmation message, or error if creation fails.
+    """
+    ctx = get_tool_context()
+    abs_path = ctx.codebase_path / path
+    try:
+        abs_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return f"ERROR: Could not create directory {path}: {e}"
+
+    msg = f"Created directory: {path}/"
+    if with_init:
+        init_file = abs_path / "__init__.py"
+        if not init_file.exists():
+            init_file.write_text("", encoding="utf-8")
+            ctx.files_written[f"{path}/__init__.py"] = ""
+            msg += " (with __init__.py)"
+
+    return msg
+
+
+@tool
+def read_file_section(path: str, start_line: int, end_line: int) -> str:
+    """Read a specific range of lines from a file without loading the whole thing.
+
+    Use this when you only need to see a specific function, class, or
+    block in a large file. Much more token-efficient than read_file for
+    files longer than ~150 lines.
+
+    Args:
+        path:       Relative path from the codebase root.
+        start_line: First line to read (1-indexed, inclusive).
+        end_line:   Last line to read (1-indexed, inclusive).
+
+    Returns:
+        The requested lines with line numbers prepended, or an error message.
+    """
+    ctx = get_tool_context()
+    abs_path = ctx.codebase_path / path
+    if not abs_path.exists():
+        return f"ERROR: File not found: {path}"
+    if not abs_path.is_file():
+        return f"ERROR: Not a file: {path}"
+
+    try:
+        lines = abs_path.read_text(
+            encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        return f"ERROR: Could not read {path}: {e}"
+
+    total = len(lines)
+    start = max(1, start_line) - 1
+    end = min(total, end_line)
+
+    if start >= total:
+        return f"ERROR: start_line {start_line} exceeds file length ({total} lines)"
+
+    selected = lines[start:end]
+    numbered = "\n".join(
+        f"{start_line + i:4d} | {l}" for i, l in enumerate(selected))
+    return f"{path} (lines {start_line}–{end}, total {total}):\n{numbered}"
+
+
+@tool
+def patch_file(path: str, old_text: str, new_text: str) -> str:
+    """Replace an exact snippet of code in a file without rewriting the whole file.
+
+    This is the preferred way to edit large files. Instead of reading the
+    entire file and writing it back, supply only the exact block you want
+    to change and its replacement.
+
+    Rules:
+    - old_text must match EXACTLY (including whitespace/indentation).
+    - If old_text appears more than once, only the FIRST occurrence is replaced.
+    - If old_text is not found, returns an error — do NOT guess.
+
+    Args:
+        path:     Relative path from the codebase root.
+        old_text: The exact existing code to replace (must be unique in the file).
+        new_text: The replacement code.
+
+    Returns:
+        Success message with the line range that was patched, or an error.
+    """
+    ctx = get_tool_context()
+    abs_path = ctx.codebase_path / path
+    if not abs_path.exists():
+        return f"ERROR: File not found: {path}"
+
+    try:
+        content = abs_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return f"ERROR: Could not read {path}: {e}"
+
+    if old_text not in content:
+        # Give a useful hint: show a few lines around the closest-matching region
+        return (
+            f"ERROR: old_text not found in {path}. "
+            "Use read_file_section to inspect the exact content first, then retry."
+        )
+
+    # replace first occurrence only
+    new_content = content.replace(old_text, new_text, 1)
+
+    try:
+        abs_path.write_text(new_content, encoding="utf-8")
+    except OSError as e:
+        return f"ERROR: Could not write {path}: {e}"
+
+    # Track the write
+    ctx.files_written[path] = new_content
+
+    # Report which line was patched (helps the agent confirm the right spot)
+    patch_start = content[:content.index(old_text)].count("\n") + 1
+    patch_end = patch_start + old_text.count("\n")
+    return (
+        f"Patched {path} (lines {patch_start}-{patch_end}): "
+        f"{old_text.count(chr(10)) + 1} lines → {new_text.count(chr(10)) + 1} lines"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tool registry
 # ---------------------------------------------------------------------------
 
-CODING_TOOLS = [read_file, write_file,
-                list_directory, search_kb, get_file_context]
+CODING_TOOLS = [
+    read_file,
+    read_file_section,
+    write_file,
+    patch_file,
+    create_directory,
+    list_directory,
+    search_kb,
+    get_file_context,
+]

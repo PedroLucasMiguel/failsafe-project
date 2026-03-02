@@ -54,19 +54,39 @@ def run_setup() -> SessionConfig:
     api_key = _resolve_api_key(provider)
     model = _ask_model(provider)
     codebase_path = _ask_codebase_path()
+    num_reviews = _ask_num_reviews()
 
-    _print_summary(provider, model, codebase_path)
+    _print_summary(provider, model, codebase_path, num_reviews)
     return SessionConfig(
         provider=provider,
         api_key=api_key,
         model=model,
         codebase_path=codebase_path,
+        num_reviews=num_reviews,
     )
 
 
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
+def _ask_num_reviews() -> int:
+    """Ask for the number of code reviews to perform."""
+    _console.print()
+    _console.rule("[bold dim]Step 5 — Code Reviews[/bold dim]", style="dim")
+    
+    while True:
+        answer = Prompt.ask(
+            "  [bold]Number of reviews[/bold]",
+            console=_console,
+            default="1",
+        ).strip()
+        
+        if answer.isdigit():
+            return int(answer)
+        
+        _console.print("  [red]Invalid choice.[/red] Please enter a number.")
+
+
 def _ask_provider() -> str:
     """Ask which LLM provider to use, highlighting any that have a key in .env."""
     _console.rule("[bold dim]Step 1 — LLM Provider[/bold dim]", style="dim")
@@ -220,13 +240,14 @@ def _print_header() -> None:
     ))
 
 
-def _print_summary(provider: str, model: str, codebase_path: str) -> None:
+def _print_summary(provider: str, model: str, codebase_path: str, num_reviews: int) -> None:
     """Print a recap of what was configured."""
     _console.print()
     _console.print(Panel(
         f"[bold]Provider:[/bold]  [cyan]{provider}[/cyan]\n"
         f"[bold]Model:   [/bold]  [cyan]{model}[/cyan]\n"
-        f"[bold]Path:    [/bold]  [cyan]{codebase_path}[/cyan]",
+        f"[bold]Path:    [/bold]  [cyan]{codebase_path}[/cyan]\n"
+        f"[bold]Reviews: [/bold]  [cyan]{num_reviews}[/cyan]",
         title="Session Config",
         border_style="bright_blue",
         padding=(0, 2),

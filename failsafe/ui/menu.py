@@ -179,7 +179,7 @@ def _run_code(config: SessionConfig) -> None:
     """Run a coding agent task against the current codebase."""
     import json
 
-    from failsafe.agents.coder import CodingAgent
+    from failsafe.agents import CodingAgent, ReviewerAgent
     from failsafe.knowledge.store import KnowledgeStore
     from failsafe.knowledge.vector_store import VectorStore
     from failsafe.llm import create_llm, set_llm
@@ -197,7 +197,8 @@ def _run_code(config: SessionConfig) -> None:
     _console.print(Panel(
         f"[bold]Coding Agent[/bold]\n"
         f"Codebase: [cyan]{config.codebase_path}[/cyan]\n"
-        f"Provider: [cyan]{config.provider}[/cyan] · [cyan]{config.model_label}[/cyan]",
+        f"Provider: [cyan]{config.provider}[/cyan] · [cyan]{config.model_label}[/cyan]\n"
+        f"Reviews:  [cyan]{config.num_reviews}[/cyan]",
         title="🤖 Code",
         border_style="bright_blue",
     ))
@@ -241,12 +242,44 @@ def _run_code(config: SessionConfig) -> None:
         vector_store=vs,
         codebase_path=codebase_path,
     )
+    reviewer = ReviewerAgent(llm=llm)
 
     _console.print("[dim]Agent is working...[/dim]\n")
 
-    result = agent.run(task)
+    current_task = task
+    for i in range(config.num_reviews + 1):
+        if i > 0:
+            _console.print(f"\n[bold yellow]Review Cycle {i}/{config.num_reviews}[/bold yellow]")
+        
+        result = agent.run(current_task)
+        
+        if i == config.num_reviews:
+            # Last iteration, no more reviews
+            break
+            
+        _console.print("\n[dim]Reviewing changes...[/dim]")
+        review_result = reviewer.review(task, result.files_modified, codebase_path)
+        
+        if review_result.is_approved:
+            _console.print("[green]✓ Code approved by reviewer.[/green]")
+            break
+        else:
+            _console.print(f"[yellow]✗ Reviewer feedback:[/yellow]\n{review_result.feedback}")
+            if review_result.suggestions:
+                _console.print("[dim]Suggestions:[/dim]")
+                for s in review_result.suggestions:
+                    _console.print(f"  - {s}")
+            
+            # Update task for next iteration
+            current_task = (
+                f"Original task: {task}\n\n"
+                f"Previous attempt resulted in these changes: {result.summary}\n\n"
+                f"The reviewer rejected the changes with the following feedback:\n"
+                f"{review_result.feedback}\n\n"
+                f"Please address the feedback and fix the issues."
+            )
 
-    # Display result
+    # Display final result
     impact_color = "yellow" if result.impact == "significant" else "green"
     files_lines = [
         f"  [dim]{path}[/dim]: {desc}"

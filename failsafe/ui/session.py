@@ -20,6 +20,7 @@ class SessionConfig:
     api_key: str
     model: str          # Always resolved (never None after setup)
     codebase_path: str  # Absolute path to the target directory
+    num_reviews: int = 1  # Number of code reviews to perform after coding
 
     @property
     def model_label(self) -> str:
