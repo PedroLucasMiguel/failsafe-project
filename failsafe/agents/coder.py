@@ -51,35 +51,32 @@ class CodingResult:
 # ---------------------------------------------------------------------------
 
 CODER_SYSTEM_PROMPT = """\
-You are an expert coding agent. You have access to a structured knowledge base \
-about the codebase you are working on, and a set of tools to read and write files.
+You are an expert coding agent. You have a KB and tools to read/write files.
 
-Your workflow:
-1. Use search_kb and get_file_context to understand existing code BEFORE writing anything.
-2. Read the relevant files before modifying them.
-3. Make the requested changes, following the coding patterns and conventions \
-   you observe in the codebase.
-4. When done, produce a structured JSON final answer (no markdown, no extra text):
+## STRICT EFFICIENCY RULES — follow these exactly:
 
-{
-  "summary": "<what you did, 1-3 sentences>",
-  "files_modified": {
-    "<relative_path>": "<one-sentence description of what changed in this file>"
-  },
-  "impact": "minor" | "significant"
-}
+1. **Research phase (iterations 1-2 max):**
+   - Call search_kb ONCE with your best query. Do NOT call it again.
+   - Call read_file for the specific files you need. Read each file AT MOST ONCE.
+   - Call get_file_context for a file only if search_kb did not give enough info.
+   - Do NOT call list_directory more than once.
 
-Impact guide:
-  minor      — you only edited existing files, no new files, no new public APIs,
-               no architectural change (bug fix, refactor, add function, fix docstring)
-  significant — you created new files, added a new module/subsystem, changed public
-               interfaces, or made architectural changes
+2. **Action phase (iterations 3+ ):**
+   - Write all changes now. Call write_file ONCE per file with the complete final content.
+   - Do NOT re-read a file after writing it.
+   - Do NOT search again after the research phase.
 
-IMPORTANT:
-- Always search the KB before writing code to understand existing patterns.
-- Follow the exact style and conventions you see in the codebase.
-- Do NOT use markdown fences in your final JSON answer.
-- After searching and reading, be decisive — make the changes.
+3. **Final answer — immediately after writing all files:**
+   Emit ONLY this JSON (no markdown, no explanation):
+   {
+     "summary": "<1-3 sentences of what you did>",
+     "files_modified": {"<rel_path>": "<one-sentence description>"},
+     "impact": "minor" | "significant"
+   }
+
+Impact: minor = edited existing files only. significant = new file created or public API changed.
+
+Follow the coding style and conventions you observe in the codebase.
 """
 
 
@@ -144,6 +141,16 @@ class CodingAgent:
         tool_map = {t.name: t for t in CODING_TOOLS}
         iterations = 0
 
+        from rich.console import Console
+        from failsafe.tracking import tracker
+        _con = Console()
+
+        # Deduplication cache: (tool_name, frozen_args) → result
+        # If agent calls same tool with same args again, return cached result
+        # without adding new context to the message history.
+        _tool_cache: dict[tuple, str] = {}
+        MAX_RESULT_CHARS = 4_000  # truncate long tool outputs to keep context small
+
         while iterations < self.MAX_ITERATIONS:
             iterations += 1
 
@@ -151,23 +158,51 @@ class CodingAgent:
             response = self._invoke_with_tools(llm_with_tools, messages)
             messages.append(response)
 
-            # No tool calls → agent is done
+            # No tool calls → agent is done, print final token count
             if not response.tool_calls:
+                _con.print(f"  [dim]🪙 {tracker.summary_str()}[/dim]")
                 break
 
-            # Execute all tool calls
+            # Show which tools are being called + cumulative token count
+            tool_names = ", ".join(tc["name"] for tc in response.tool_calls)
+            _con.print(
+                f"  [dim]iter {iterations} · {tool_names} · "
+                f"🪙 {tracker.summary_str()}[/dim]"
+            )
+
+            # Execute all tool calls (with deduplication + truncation)
             for tc in response.tool_calls:
                 tool_fn = tool_map.get(tc["name"])
                 if tool_fn is None:
                     result = f"ERROR: Unknown tool '{tc['name']}'"
                 else:
+                    # Build a hashable cache key from the tool name + args
                     try:
-                        result = tool_fn.invoke(tc["args"])
-                    except Exception as exc:  # noqa: BLE001
-                        result = f"ERROR: Tool {tc['name']} failed: {exc}"
+                        cache_key = (tc["name"], tuple(
+                            sorted(tc["args"].items())))
+                    except Exception:  # noqa: BLE001
+                        cache_key = None
+
+                    if cache_key and cache_key in _tool_cache:
+                        # Return cached result — no new context added
+                        result = f"[cached] {_tool_cache[cache_key]}"
+                    else:
+                        try:
+                            result = tool_fn.invoke(tc["args"])
+                        except Exception as exc:  # noqa: BLE001
+                            result = f"ERROR: Tool {tc['name']} failed: {exc}"
+
+                        result = str(result)
+                        # Truncate very long results to keep context bounded
+                        if len(result) > MAX_RESULT_CHARS:
+                            result = result[:MAX_RESULT_CHARS] + \
+                                "\n...[truncated]"
+
+                        if cache_key:
+                            _tool_cache[cache_key] = result
 
                 messages.append(ToolMessage(
-                    content=str(result),
+                    content=result,
                     tool_call_id=tc["id"],
                 ))
 
@@ -207,9 +242,18 @@ class CodingAgent:
         tracker.record(response)
         return response
 
-    def _parse_result(self, raw: str) -> CodingResult:
+    def _parse_result(self, raw) -> CodingResult:
         """Parse the agent's structured JSON final answer."""
-        raw = raw.strip()
+        # Normalize content: Gemini returns list[dict], OpenAI/Anthropic return str
+        if isinstance(raw, list):
+            parts = []
+            for block in raw:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    parts.append(block.get("text", ""))
+            raw = "".join(parts)
+        raw = str(raw).strip()
 
         # Strip markdown fences if model wrapped the JSON
         if raw.startswith("```"):

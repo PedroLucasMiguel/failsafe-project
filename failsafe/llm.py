@@ -123,7 +123,7 @@ def _add_anthropic_cache_control(messages: list) -> list:
 
     Anthropic supports up to 4 cache breakpoints. We cache the largest/most-
     repeated content: system prompts (always the same across batches) and the
-    last HumanMessage (the current file batch) if it's large.
+    last HumanMessage (the current file_batch) if it's large.
 
     Implementation note: LangChain's Anthropic integration accepts cache_control
     when message content is passed as ``[{"type": "text", "text": ...,
@@ -176,7 +176,7 @@ PROVIDER_REGISTRY: dict[str, tuple[str, str, str]] = {
     "openai": (
         "langchain_openai",
         "ChatOpenAI",
-        "gpt-4o-mini",
+        "gpt-4o",
     ),
     "anthropic": (
         "langchain_anthropic",
@@ -186,7 +186,7 @@ PROVIDER_REGISTRY: dict[str, tuple[str, str, str]] = {
     "google": (
         "langchain_google_genai",
         "ChatGoogleGenerativeAI",
-        "gemini-2.0-flash",
+        "gemini-3-flash-preview",
     ),
 }
 

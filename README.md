@@ -13,6 +13,6 @@ uv run failsafe discover ./path/to/codebase --provider openai --api-key YOUR_KEY
 
 | Provider  | Flag                   | Default Model             |
 | --------- | ---------------------- | ------------------------- |
-| OpenAI    | `--provider openai`    | `gpt-4o-mini`             |
+| OpenAI    | `--provider openai`    | `gpt-4o`                  |
 | Anthropic | `--provider anthropic` | `claude-3-5-haiku-latest` |
-| Google    | `--provider google`    | `gemini-2.0-flash`        |
+| Google    | `--provider google`    | `gemini-3-flash-preview`  |
